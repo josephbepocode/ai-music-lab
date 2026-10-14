@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Music Lab | Generative beat and melody composer</title>
+<meta name="description" content="Compose beats and melodies with Magenta neural networks and Tone.js, entirely in the browser.">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0b10;--p:#12141c;--l:#232636;--t:#eef0ff;--m:#8a8fa8;--a:#ff4d8d;--b:#3de0c6;--c:#ffd166}
+*{box-sizing:border-box}body{margin:0;font-family:'Space Grotesk',system-ui,sans-serif;background:radial-gradient(800px 500px at 80% -20%,#3a0d2e,transparent 60%),radial-gradient(700px 500px at -10% 30%,#06343a,transparent 60%),var(--bg);color:var(--t);min-height:100vh}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 28px;border-bottom:1px solid var(--l);gap:12px;flex-wrap:wrap}
+.logo{font-weight:700;font-size:21px}.logo b{color:var(--a)}
+.st{font-size:12px;color:var(--m);border:1px solid var(--l);padding:6px 12px;border-radius:99px}
+.wrap{max-width:1400px;margin:auto;padding:20px 28px;display:grid;grid-template-columns:1fr 300px;gap:20px}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr;padding:12px}}
+.card{background:var(--p);border:1px solid var(--l);border-radius:18px;padding:16px;margin-bottom:18px}
+h3{margin:0 0 12px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--m);display:flex;justify-content:space-between;align-items:center}
+.transport{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;cursor:pointer;border:1px solid var(--l);background:#1b1e2a;color:var(--t);padding:9px 14px;border-radius:12px;transition:.15s}
+button:hover{border-color:var(--b)}button.big{background:linear-gradient(135deg,var(--a),#ff8a5b);border:0;font-weight:700;padding:12px 22px}
+button.ai{background:linear-gradient(135deg,#6d5dfc,#3de0c6);border:0;font-weight:600}button:disabled{opacity:.5;cursor:wait}
+.seq{display:grid;grid-template-columns:96px repeat(16,1fr);gap:4px;align-items:center;overflow-x:auto}
+.seq .lab{font-size:12px;color:var(--m);white-space:nowrap}
+.cell{aspect-ratio:1;min-width:16px;border-radius:6px;background:#1c1f2c;cursor:pointer;transition:background .1s,transform .1s}
+.cell:nth-child(17n+6),.cell:nth-child(17n+7),.cell:nth-child(17n+8),.cell:nth-child(17n+9){background:#232738}
+.cell:nth-child(17n+14),.cell:nth-child(17n+15),.cell:nth-child(17n+16),.cell:nth-child(17n+17){background:#232738}
+.cell.on{background:var(--a)!important;box-shadow:0 0 12px #ff4d8d88}.mel .cell.on{background:var(--b)!important;box-shadow:0 0 12px #3de0c688}
+.cell.ph{outline:2px solid #ffffffaa}.cell.ai{animation:pop .5s}@keyframes pop{0%{transform:scale(.4)}100%{transform:scale(1)}}
+canvas{width:100%;height:150px;display:block;border-radius:12px;background:#07080c}
+label{display:flex;justify-content:space-between;font-size:13px;color:var(--m);margin:12px 0 4px}input[type=range]{width:100%;accent-color:var(--a)}
+select{width:100%;font:inherit;background:#1b1e2a;color:var(--t);border:1px solid var(--l);padding:9px;border-radius:10px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.row button{flex:1}
+.hint{font-size:12px;color:var(--m);line-height:1.5}
+.bpm{font-size:28px;font-weight:700}
+</style>
+</head>
+<body>
+<header><div class="logo">AI Music <b>Lab</b></div><div class="transport">
+<button class="big" id="play">Play</button><span class="bpm"><span id="bpmV">96</span><small style="font-size:12px;color:var(--m)"> BPM</small></span>
+<span class="st" id="status">Neural models load on first use</span></div></header>
+<div class="wrap">
+<main>
+  <div class="card"><h3>Spectrum and waveform <span id="stepLbl">step 1/16</span></h3><canvas id="viz" width="1200" height="300"></canvas></div>
+  <div class="card"><h3>Drums <span><button class="ai" id="aiDrums">AI continue drums (DrumsRNN)</button></span></h3><div class="seq" id="drums"></div></div>
+  <div class="card mel"><h3>Melody (C minor pentatonic) <span><button class="ai" id="aiMel">AI continue melody (MelodyRNN)</button></span></h3><div class="seq" id="mel"></div></div>
+</main>
+<aside>
+  <div class="card"><h3>Groove</h3>
+    <label>Tempo <span id="bpmL">96</span></label><input type="range" id="bpm" min="60" max="170" value="96">
+    <label>Swing <span id="swL">10%</span></label><input type="range" id="swing" min="0" max="60" value="10">
+    <label>AI temperature <span id="tmpL">1.1</span></label><input type="range" id="temp" min="5" max="20" value="11">
+    <label>Synth voice</label><select id="voice"><option value="pluck">Glass pluck</option><option value="pad">Warm pad</option><option value="bass">Acid lead</option><option value="bell">FM bell</option></select>
+    <label>Space (reverb) <span id="rvL">30%</span></label><input type="range" id="rv" min="0" max="90" value="30">
+  </div>
+  <div class="card"><h3>Generate</h3>
+    <select id="preset"><option value="house">House</option><option value="hiphop">Boom bap</option><option value="afro">Afrobeats</option><option value="dnb">Drum and bass</option><option value="lofi">Lo-fi</option></select>
+    <div class="row"><button id="genPreset">Style seed</button><button id="genAll" class="ai">Full AI jam</button></div>
+    <div class="row"><button id="clear">Clear</button><button id="mutate">Mutate</button></div>
+    <p class="hint">AI continuation uses Google Magenta's DrumsRNN and MelodyRNN (LSTM networks, about 5 MB each) running in your browser via TensorFlow.js. If a model cannot load, a rule-based generator takes over.</p>
+  </div>
+  <div class="card"><h3>Export</h3>
+    <div class="row"><button id="wav">WAV (4 bars)</button><button id="midi">MIDI</button></div>
+    <div class="row"><button id="share">Copy share link</button></div>
+    <p class="hint" id="exMsg">Patterns are saved in the URL so you can share them.</p>
+  </div>
+</aside>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@magenta/music@1.23.1/dist/magentamusic.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const DR=[['Kick',36],['Snare',38],['Clap',39],['Closed hat',42],['Open hat',46],['Low tom',45],['High tom',50],['Crash',49]];
+const SCALE=[60,63,65,67,70,72,75,77,79,82,84].reverse();const NN=['C','D#','F','G','A#'];
+const nname=m=>NN[[0,3,5,7,10].indexOf(m%12)]+(Math.floor(m/12)-1);
+let drums=DR.map(()=>Array(16).fill(0)),mel=SCALE.map(()=>Array(16).fill(0));
+function build(el,rows,grid,cls){el.innerHTML='';rows.forEach((r,i)=>{const l=document.createElement('div');l.className='lab';l.textContent=r;el.appendChild(l);for(let s=0;s<16;s++){const c=document.createElement('div');c.className='cell';c.dataset.r=i;c.dataset.s=s;c.onclick=()=>{grid[i][s]^=1;paint();if(grid[i][s]&&Tone.context.state==='running')(cls==='d'?hitDrum(i,Tone.now()):lead.triggerAttackRelease(Tone.Frequency(SCALE[i],'midi'),'8n'));save()};el.appendChild(c)}})}
+function rebuild(){build($('#drums'),DR.map(d=>d[0]),drums,'d');build($('#mel'),SCALE.map(nname),mel,'m');paint()}
+function paint(fresh){[['#drums',drums],['#mel',mel]].forEach(([s,g])=>document.querySelectorAll(s+' .cell').forEach(c=>{const on=g[c.dataset.r][c.dataset.s];c.classList.toggle('on',!!on);if(fresh&&on){c.classList.remove('ai');void c.offsetWidth;c.classList.add('ai')}}))}
+
+// Audio graph
+const master=new Tone.Gain(.8);const rev=new Tone.Reverb({decay:3,wet:.3});const comp=new Tone.Compressor(-18,3);const fft=new Tone.FFT(128),wave=new Tone.Waveform(512);
+master.chain(comp,Tone.Destination);comp.connect(fft);comp.connect(wave);
+function makeKit(dest){
+  const k={};
+  k.kick=new Tone.MembraneSynth({pitchDecay:.04,octaves:6,envelope:{decay:.4,sustain:0}}).connect(dest);
+  k.snare=new Tone.NoiseSynth({noise:{type:'white'},envelope:{decay:.18,sustain:0}}).connect(new Tone.Filter(1800,'bandpass').connect(dest));
+  k.clap=new Tone.NoiseSynth({noise:{type:'pink'},envelope:{attack:.005,decay:.12,sustain:0}}).connect(new Tone.Filter(1200,'highpass').connect(dest));
+  k.hat=new Tone.MetalSynth({envelope:{decay:.05,release:.01},harmonicity:5.1,modulationIndex:32,resonance:4000,octaves:1.5,volume:-16}).connect(dest);
+  k.ohat=new Tone.MetalSynth({envelope:{decay:.3,release:.1},harmonicity:5.1,modulationIndex:32,resonance:4000,octaves:1.5,volume:-18}).connect(dest);
+  k.tom=new Tone.MembraneSynth({pitchDecay:.08,octaves:3,envelope:{decay:.3,sustain:0},volume:-4}).connect(dest);
+  k.crash=new Tone.MetalSynth({envelope:{decay:1.2,release:.5},harmonicity:3.1,modulationIndex:40,resonance:5000,volume:-20}).connect(dest);
+  return k}
+function trig(k,i,t){switch(i){case 0:k.kick.triggerAttackRelease('C1','8n',t);break;case 1:k.snare.triggerAttackRelease('16n',t);break;case 2:k.clap.triggerAttackRelease('16n',t);break;case 3:k.hat.triggerAttackRelease('C6','32n',t,.6);break;case 4:k.ohat.triggerAttackRelease('C6','8n',t,.6);break;case 5:k.tom.triggerAttackRelease('G2','8n',t);break;case 6:k.tom.triggerAttackRelease('D3','8n',t);break;case 7:k.crash.triggerAttackRelease('C6','2n',t,.5);break}}
+const VOICES={pluck:()=>new Tone.PolySynth(Tone.Synth,{oscillator:{type:'triangle8'},envelope:{attack:.005,decay:.3,sustain:.1,release:.6},volume:-8}),
+ pad:()=>new Tone.PolySynth(Tone.AMSynth,{envelope:{attack:.2,decay:.4,sustain:.6,release:1.4},volume:-10}),
+ bass:()=>new Tone.PolySynth(Tone.MonoSynth,{oscillator:{type:'sawtooth'},filter:{Q:6,type:'lowpass'},filterEnvelope:{attack:.01,decay:.2,sustain:.2,baseFrequency:300,octaves:3},envelope:{attack:.01,decay:.2,sustain:.3,release:.3},volume:-14}),
+ bell:()=>new Tone.PolySynth(Tone.FMSynth,{harmonicity:3.01,modulationIndex:14,envelope:{attack:.001,decay:.8,sustain:0,release:1},volume:-10})};
+const kitBus=new Tone.Gain(1).connect(master);const kit=makeKit(kitBus);
+let lead=VOICES.pluck();lead.chain(rev,master);
+function hitDrum(i,t){trig(kit,i,t)}
+let step=0;
+const seq=new Tone.Sequence((t,s)=>{step=s;drums.forEach((r,i)=>r[s]&&trig(kit,i,t));const notes=mel.map((r,i)=>r[s]?Tone.Frequency(SCALE[i],'midi').toNote():null).filter(Boolean);if(notes.length)lead.triggerAttackRelease(notes,'8n',t);Tone.Draw.schedule(()=>ph(s),t)},[...Array(16).keys()],'16n').start(0);
+function ph(s){document.querySelectorAll('.cell.ph').forEach(c=>c.classList.remove('ph'));document.querySelectorAll(`.cell[data-s="${s}"]`).forEach(c=>c.classList.add('ph'));$('#stepLbl').textContent=`step ${s+1}/16`}
+$('#play').onclick=async()=>{await Tone.start();if(Tone.Transport.state==='started'){Tone.Transport.stop();$('#play').textContent='Play'}else{Tone.Transport.start();$('#play').textContent='Stop'}};
+const setBpm=v=>{Tone.Transport.bpm.value=v;$('#bpmV').textContent=$('#bpmL').textContent=v};
+$('#bpm').oninput=e=>{setBpm(+e.target.value);save()};
+$('#swing').oninput=e=>{Tone.Transport.swing=e.target.value/100;Tone.Transport.swingSubdivision='16n';$('#swL').textContent=e.target.value+'%'};Tone.Transport.swing=.1;Tone.Transport.swingSubdivision='16n';
+$('#temp').oninput=e=>$('#tmpL').textContent=(e.target.value/10).toFixed(1);
+$('#rv').oninput=e=>{rev.wet.value=e.target.value/100;$('#rvL').textContent=e.target.value+'%'};
+$('#voice').onchange=e=>{lead.dispose();lead=VOICES[e.target.value]();lead.chain(rev,master)};
+
+// Visualizer
+const cv=$('#viz'),g=cv.getContext('2d');
+(function draw(){requestAnimationFrame(draw);const W=cv.width,H=cv.height;g.fillStyle='rgba(7,8,12,.35)';g.fillRect(0,0,W,H);
+ const f=fft.getValue(),n=f.length,bw=W/n;for(let i=0;i<n;i++){const v=Math.max(0,(f[i]+110)/110);const h=v*H*.9;const gr=g.createLinearGradient(0,H,0,H-h);gr.addColorStop(0,'#ff4d8d');gr.addColorStop(1,'#3de0c6');g.fillStyle=gr;g.fillRect(i*bw+1,H-h,bw-2,h)}
+ const w=wave.getValue();g.beginPath();g.strokeStyle='#ffd166';g.lineWidth=2;for(let i=0;i<w.length;i++){const x=i/w.length*W,y=H/2+w[i]*H*.4;i?g.lineTo(x,y):g.moveTo(x,y)}g.stroke()})();
+
+// Magenta
+let drumRnn,melRnn;const status=t=>$('#status').textContent=t;
+async function getModel(kind){
+  if(kind==='d'&&drumRnn)return drumRnn;if(kind==='m'&&melRnn)return melRnn;
+  status('Loading '+(kind==='d'?'DrumsRNN':'MelodyRNN')+' (about 5 MB)...');
+  const m=new mm.MusicRNN('https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/'+(kind==='d'?'drum_kit_rnn':'basic_rnn'));
+  await m.initialize();status('Model ready');kind==='d'?drumRnn=m:melRnn=m;return m}
+function toSeq(grid,pitches,isDrum,upto=16){const notes=[];grid.forEach((r,i)=>r.forEach((v,s)=>{if(v&&s<upto)notes.push({pitch:pitches[i],quantizedStartStep:s,quantizedEndStep:s+1,isDrum})}));return{notes,quantizationInfo:{stepsPerQuarter:4},totalQuantizedSteps:upto}}
+const DRUMMAP={36:0,35:0,38:1,40:1,37:2,39:2,42:3,44:3,22:3,46:4,26:4,41:5,43:5,45:5,47:6,48:6,50:6,49:7,51:7,52:7,55:7,57:7,59:7,53:7};
+async function aiDrums(){
+  const b=$('#aiDrums');b.disabled=true;
+  try{const m=await getModel('d');status('DrumsRNN improvising...');
+    let seed=toSeq(drums,DR.map(d=>d[1]),true,8);if(!seed.notes.length)seed.notes.push({pitch:36,quantizedStartStep:0,quantizedEndStep:1,isDrum:true});
+    const r=await m.continueSequence(seed,8,$('#temp').value/10);
+    for(let i=0;i<8;i++)drums.forEach(row=>row[8+i]=0);
+    r.notes.forEach(n=>{const row=DRUMMAP[n.pitch];if(row!==undefined&&n.quantizedStartStep<8)drums[row][8+n.quantizedStartStep]=1});
+    status('DrumsRNN wrote the second half of the loop from your first half');
+  }catch(e){console.error(e);status('Model unavailable, used rule-based drums');ruleDrums($('#preset').value,true)}
+  paint(true);save();b.disabled=false}
+async function aiMel(){
+  const b=$('#aiMel');b.disabled=true;
+  try{const m=await getModel('m');status('MelodyRNN composing...');
+    let seed=toSeq(mel,SCALE,false,4);if(!seed.notes.length)seed.notes.push({pitch:60,quantizedStartStep:0,quantizedEndStep:2});
+    // monophonic seed: keep highest note per step
+    const by={};seed.notes.forEach(n=>{if(!by[n.quantizedStartStep]||by[n.quantizedStartStep].pitch<n.pitch)by[n.quantizedStartStep]=n});seed.notes=Object.values(by);
+    const r=await m.continueSequence(seed,12,$('#temp').value/10);
+    mel.forEach(row=>{for(let s=4;s<16;s++)row[s]=0});
+    r.notes.forEach(n=>{const st=4+n.quantizedStartStep;if(st>15)return;let best=0,bd=99;SCALE.forEach((p,i)=>{const d=Math.abs(p-(n.pitch%12+60+(n.pitch>=72?12:0)));if(d<bd){bd=d;best=i}});mel[best][st]=1});
+    status('MelodyRNN continued your first beat');
+  }catch(e){console.error(e);status('Model unavailable, used rule-based melody');ruleMel()}
+  paint(true);save();b.disabled=false}
+$('#aiDrums').onclick=aiDrums;$('#aiMel').onclick=aiMel;
+const PRE={house:{k:'x...x...x...x...',s:'....x.......x...',c:'................',h:'..x...x...x...x.',o:'................',bpm:124},
+ hiphop:{k:'x......xx.x.....',s:'....x.......x...',c:'............x...',h:'x.x.x.x.x.x.x.x.',o:'................',bpm:90},
+ afro:{k:'x..x..x...x..x..',s:'...x..x....x..x.',c:'......x.......x.',h:'x.xxx.xxx.xxx.xx',o:'..............x.',bpm:104},
+ dnb:{k:'x.........x.....',s:'....x.......x...',c:'................',h:'xxxxxxxxxxxxxxxx',o:'.......x........',bpm:170},
+ lofi:{k:'x......x..x.....',s:'....x.......x...',c:'................',h:'x.x.x.x.x.x.x.xx',o:'................',bpm:78}};
+function ruleDrums(p,secondHalf){const P=PRE[p];const rows=[P.k,P.s,P.c,P.h,P.o];rows.forEach((r,i)=>{for(let s=secondHalf?8:0;s<16;s++)drums[i][s]=r[s]==='x'?1:(Math.random()<.04?1:0)});for(let s=secondHalf?8:0;s<16;s++){drums[5][s]=Math.random()<.06?1:0;drums[6][s]=s>12&&Math.random()<.3?1:0;drums[7][s]=s===0?1:0}}
+function ruleMel(){mel.forEach(r=>r.fill(0));let i=5+Math.floor(Math.random()*3);for(let s=0;s<16;s++){if(Math.random()<.55){i=Math.max(0,Math.min(SCALE.length-1,i+Math.round((Math.random()-.5)*4)));mel[i][s]=1}}}
+$('#genPreset').onclick=()=>{const p=$('#preset').value;ruleDrums(p);ruleMel();setBpm(PRE[p].bpm);$('#bpm').value=PRE[p].bpm;paint(true);save()};
+$('#genAll').onclick=async()=>{const p=$('#preset').value;ruleDrums(p);ruleMel();setBpm(PRE[p].bpm);$('#bpm').value=PRE[p].bpm;paint(true);await aiDrums();await aiMel()};
+$('#clear').onclick=()=>{drums.forEach(r=>r.fill(0));mel.forEach(r=>r.fill(0));paint();save()};
+$('#mutate').onclick=()=>{for(let k=0;k<6;k++){const g=Math.random()<.5?drums:mel;const r=Math.floor(Math.random()*g.length),s=Math.floor(Math.random()*16);g[r][s]^=1}paint(true);save()};
+
+// Export
+function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click()}
+function wavEncode(buf){const ch=buf.numberOfChannels,len=buf.length,sr=buf.sampleRate,ab=new ArrayBuffer(44+len*ch*2),v=new DataView(ab);let o=0;const w=s=>{for(const c of s)v.setUint8(o++,c.charCodeAt(0))},u32=x=>{v.setUint32(o,x,true);o+=4},u16=x=>{v.setUint16(o,x,true);o+=2};
+ w('RIFF');u32(36+len*ch*2);w('WAVEfmt ');u32(16);u16(1);u16(ch);u32(sr);u32(sr*ch*2);u16(ch*2);u16(16);w('data');u32(len*ch*2);
+ const data=[...Array(ch).keys()].map(c=>buf.getChannelData(c));for(let i=0;i<len;i++)for(let c=0;c<ch;c++){const s=Math.max(-1,Math.min(1,data[c][i]));v.setInt16(o,s<0?s*0x8000:s*0x7fff,true);o+=2}return new Blob([ab],{type:'audio/wav'})}
+$('#wav').onclick=async()=>{$('#exMsg').textContent='Rendering offline...';const bpm=Tone.Transport.bpm.value,dur=60/bpm*16+2;const voice=$('#voice').value,wet=rev.wet.value;
+ const buf=await Tone.Offline(async({transport})=>{transport.bpm.value=bpm;const m=new Tone.Gain(.8).toDestination();const r=new Tone.Reverb({decay:3,wet});await r.generate();const k=makeKit(m);const l=VOICES[voice]();l.chain(r,m);
+  new Tone.Sequence((t,s)=>{drums.forEach((row,i)=>row[s]&&trig(k,i,t));const ns=mel.map((row,i)=>row[s]?Tone.Frequency(SCALE[i],'midi').toNote():null).filter(Boolean);if(ns.length)l.triggerAttackRelease(ns,'8n',t)},[...Array(16).keys()],'16n').start(0);transport.loop=false;transport.start()},dur,2);
+ dl(wavEncode(buf.get()),'ai-music-lab.wav');$('#exMsg').textContent='WAV exported (4 bars).'};
+$('#midi').onclick=()=>{const ns={notes:[...toSeq(drums,DR.map(d=>d[1]),true).notes.map(n=>({...n,instrument:9})),...toSeq(mel,SCALE,false).notes.map(n=>({...n,velocity:90,program:0}))],quantizationInfo:{stepsPerQuarter:4},totalQuantizedSteps:16,tempos:[{time:0,qpm:Tone.Transport.bpm.value}]};
+ ns.notes.forEach(n=>n.velocity=100);const uns=mm.sequences.unquantizeSequence(ns,Tone.Transport.bpm.value);dl(new Blob([mm.sequenceProtoToMidi(uns)],{type:'audio/midi'}),'ai-music-lab.mid');$('#exMsg').textContent='MIDI exported.'};
+function enc(){const b=g=>g.map(r=>parseInt(r.join(''),2).toString(36)).join('.');return `d=${b(drums)}&m=${b(mel)}&bpm=${Tone.Transport.bpm.value}`}
+function save(){history.replaceState(null,'','#'+enc())}
+$('#share').onclick=()=>{navigator.clipboard.writeText(location.href);$('#exMsg').textContent='Link copied.'};
+(function load(){const p=new URLSearchParams(location.hash.slice(1));const dec=(s,n)=>s.split('.').slice(0,n).map(x=>parseInt(x,36).toString(2).padStart(16,'0').split('').map(Number));
+ if(p.get('d')){drums=dec(p.get('d'),8);mel=dec(p.get('m'),SCALE.length);setBpm(+p.get('bpm')||96);$('#bpm').value=Tone.Transport.bpm.value}else{ruleDrums('afro');ruleMel();setBpm(104);$('#bpm').value=104;$('#preset').value='afro'}rebuild()})();
+</script>
+</body>
+</html>
